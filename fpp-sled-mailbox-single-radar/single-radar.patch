@@ -1,0 +1,298 @@
+From 2a18f85c2387d6d22548cfd5a87392eafcda501c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 10 Nov 2026 14:08:04 +0000
+Subject: [PATCH] Add single-radar mode and tolerate CH340 bit-7 corruption in
+ data frames
+
+With only one LD2410B connected, the daemon never counted anything: a car is
+recorded only when radars A and B trigger in sequence. Add ld2410.mode
+(auto|dual|single). Auto (default) switches to single-radar mode when only one
+radar port is configured, or only one configured port exists at startup. In
+single mode each rising edge counts as one car (cooldown + parked suppression),
+recorded under the Inbound label since direction is unknown.
+
+Also mask bit 7 on status/energy/distance-high bytes in basic data frames.
+CH340 adapters at 256000 baud flip bit 7, which pushed energy above 100 and
+silently dropped the frame.
+
+Settings page: add 'None (single radar)' for Sensor B and a Radar Mode select.
+Also read parked timeout from car.parked_timeout_s (what the UI saves).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014ZE721391WYGMSx3qZprDn
+---
+ README.md                |  6 ++++
+ config/sled.json.example |  1 +
+ scripts/sled_daemon.py   | 76 +++++++++++++++++++++++++++++++++++++++-
+ scripts/sled_ld2410.py   | 18 +++++++---
+ www/index.php            | 35 ++++++++++++++----
+ www/save.php             |  4 ++-
+ 6 files changed, 127 insertions(+), 13 deletions(-)
+
+diff --git a/README.md b/README.md
+index c86cfc7..e63c376 100644
+--- a/README.md
++++ b/README.md
+@@ -159,6 +159,12 @@ SLED is a **production-grade prop controller** built by a Christmas lighting ent
+ 5. Parked cars suppress the car-event trigger until the car leaves
+ 6. All counts publish to MQTT and log to SQLite
+ 
++#### Single-radar mode
++
++Only have one LD2410B? Set **Sensor B Port** to *None (single radar)*, or set **Radar Mode** to *Single*. Every new detection on the one radar then counts as one car (after `car.cooldown_s`, or `ld2410.single_cooldown_s` if set), and parked suppression still applies. A single radar can't tell direction, so these counts are recorded under the `label_toward` (Inbound) label.
++
++`ld2410.mode` accepts `"auto"` (default), `"dual"` or `"single"`. In `auto`, the daemon uses single-radar mode when only one radar port is set, or when only one of the two configured ports exists at startup (for example, B is `/dev/ttyUSB1` but no second adapter is plugged in). Restart the plugin after plugging in a second radar.
++
+ ---
+ 
+ ## 🛠️ Hardware You'll Need
+diff --git a/config/sled.json.example b/config/sled.json.example
+index c410f1d..32ad73e 100644
+--- a/config/sled.json.example
++++ b/config/sled.json.example
+@@ -54,6 +54,7 @@
+   },
+   "ld2410": {
+     "enabled": false,
++    "mode": "auto",
+     "min_energy": 20,
+     "A": {"port": "/dev/ttyUSB0", "min_energy": 20},
+     "B": {"port": "/dev/ttyUSB1", "min_energy": 20}
+diff --git a/scripts/sled_daemon.py b/scripts/sled_daemon.py
+index 6318ed7..2423c8f 100644
+--- a/scripts/sled_daemon.py
++++ b/scripts/sled_daemon.py
+@@ -454,7 +454,21 @@ def main() -> None:
+     car_cooldown_s   = float(car_cfg.get("cooldown_s", 1.5))
+ 
+     ld_cfg           = cfg.get("ld2410", {}) or {}
+-    parked_timeout_s = float(ld_cfg.get("parked_car_timeout", 180))
++    parked_timeout_s = float(ld_cfg.get("parked_car_timeout",
++                             car_cfg.get("parked_timeout_s", 180)))
++
++    # ── Radar mode: dual (A→B / B→A sequencing) or single ──────────────────────
++    # A single radar can't tell direction, so in single mode every rising edge
++    # on the one active radar counts as one car (subject to cooldown/parked).
++    single_side = _resolve_single_radar_side(ld_cfg)
++    single_cooldown_s = float(ld_cfg.get("single_cooldown_s", car_cooldown_s))
++    if ld_cfg.get("enabled", False):
++        if single_side:
++            log.info("Radar mode: SINGLE (radar %s, cooldown %.1fs) — every detection "
++                     "counts as one car, recorded as '%s' (no direction available)",
++                     single_side, single_cooldown_s, label_tow)
++        else:
++            log.info("Radar mode: DUAL (A/B sequencing, window %.1fs)", seq_window_s)
+ 
+     letter_cd_s   = float(cfg.get("letter",   {}).get("cooldown_s", 3.0))
+     donation_cd_s = float(cfg.get("donation", {}).get("cooldown_s", 5.0))
+@@ -826,6 +840,21 @@ def main() -> None:
+                 fpp.start_playlist(pl_idle, repeat=True)
+                 continue
+ 
++            # ── SINGLE-RADAR MODE ─────────────────────────────────────────────
++            if single_side and ev in ("a", "b"):
++                side    = ev.upper()
++                parked  = parked_a if side == "A" else parked_b
++                parked.on_presence(now_ts)
++                if side != single_side:
++                    continue
++                if ((now_ts - last_car_time) > single_cooldown_s
++                        and parked.allow_trigger()):
++                    last_car_time = now_ts
++                    _record_car(db, ha, label_tow, label_tow, side)
++                else:
++                    log.debug("[Car] radar %s detection ignored (cooldown/parked)", side)
++                continue
++
+             # ── RADAR A ───────────────────────────────────────────────────────
+             if ev == "a":
+                 parked_a.on_presence(now_ts)
+@@ -870,6 +899,51 @@ def main() -> None:
+         log.info("=== SLED daemon stopped ===")
+ 
+ 
++def _resolve_single_radar_side(ld_cfg: Dict[str, Any]) -> Optional[str]:
++    """
++    Decide whether the radar counter runs in single-radar mode.
++
++    ld2410.mode:
++      "dual"   — always use A/B sequencing (original behaviour).
++      "single" — count on one radar: A if it has a port, else B.
++      "auto"   — (default) single if only one of A/B has a port configured,
++                 or if only one configured port actually exists at startup
++                 (e.g. B is set to /dev/ttyUSB1 but no second adapter is
++                 plugged in).  Otherwise dual.
++
++    Returns "A" or "B" for single mode, or None for dual mode.
++    """
++    if not ld_cfg.get("enabled", False):
++        return None
++    mode = str(ld_cfg.get("mode", "auto") or "auto").strip().lower()
++    if mode == "dual":
++        return None
++
++    ports = {side: str((ld_cfg.get(side, {}) or {}).get("port", "") or "").strip()
++             for side in ("A", "B")}
++    configured = [side for side in ("A", "B") if ports[side]]
++
++    if mode == "single":
++        if not configured:
++            log.warning("Radar mode 'single' but no radar port configured")
++            return None
++        return configured[0]
++
++    # auto
++    if len(configured) == 1:
++        return configured[0]
++    if len(configured) == 2:
++        present = [side for side in configured if os.path.exists(ports[side])]
++        if len(present) == 1:
++            missing = "B" if present[0] == "A" else "A"
++            log.warning("Radar %s port %s not found — falling back to single-radar "
++                        "mode on radar %s (set ld2410.mode to 'dual' to disable, "
++                        "and restart the plugin after plugging in the second radar)",
++                        missing, ports[missing], present[0])
++            return present[0]
++    return None
++
++
+ def _record_car(db: SledDB, ha: HAMqtt, friendly: str, label_tow: str, dir_seq: str) -> None:
+     snap = db.snapshot()
+     ct   = db.increment_counter("car_total")
+diff --git a/scripts/sled_ld2410.py b/scripts/sled_ld2410.py
+index c340b78..c3bbe83 100644
+--- a/scripts/sled_ld2410.py
++++ b/scripts/sled_ld2410.py
+@@ -466,14 +466,22 @@ def decode_report_frame(frame: bytes) -> Optional[Ld2410Report]:
+     # Skip target status byte
+     if j >= len(body):
+         return None
+-    status = body[j]; j += 1
++    # Bit-7 masking (same CH340/CP2102 corruption handled in the config
++    # parser): status is 0..3, energies are 0..100 and distance high bytes
++    # are <= 0x23 (9000 cm), so bit 7 is never legitimately set on any of
++    # them.  Without this, a single flipped bit pushes energy > 100 and the
++    # whole frame is silently discarded by the range check below.
++    status = body[j] & 0x7F; j += 1
+ 
+-    if j + 9 > len(body):
++    if j + 8 > len(body):
+         return None
+ 
+-    move_dist   = _u16le(body, j);     move_energy  = body[j + 2]; j += 3
+-    still_dist  = _u16le(body, j);     still_energy = body[j + 2]; j += 3
+-    detect_dist = _u16le(body, j);                                  j += 2
++    def _dist(i: int) -> int:
++        return int(body[i]) | ((int(body[i + 1]) & 0x7F) << 8)
++
++    move_dist   = _dist(j);   move_energy  = body[j + 2] & 0x7F; j += 3
++    still_dist  = _dist(j);   still_energy = body[j + 2] & 0x7F; j += 3
++    detect_dist = _dist(j);                                       j += 2
+ 
+     if not (0 <= move_dist <= 9000 and 0 <= still_dist <= 9000
+             and 0 <= move_energy <= 100 and 0 <= still_energy <= 100):
+diff --git a/www/index.php b/www/index.php
+index a00c966..4b9c499 100644
+--- a/www/index.php
++++ b/www/index.php
+@@ -23,6 +23,7 @@ function defaultCfg() {
+       "enabled"  => false,
+       "A"        => ["port" => "/dev/ttyUSB0", "min_energy" => 20],
+       "B"        => ["port" => "/dev/ttyUSB1", "min_energy" => 20],
++      "mode"     => "auto",
+     ],
+     "direction" => [
+       "toward_reference" => "AB",
+@@ -662,7 +663,7 @@ $pluginVersion = pluginVersion();
+           <tr>
+             <th colspan="4" style="padding:8px;">
+               <i class="fas fa-fw fa-car"></i> Car Counter (HLK-LD2410B Radar)
+-              <span class="text-muted fw-normal small ms-2">Optional &mdash; requires two HLK-LD2410B sensors connected via USB</span>
++              <span class="text-muted fw-normal small ms-2">Optional &mdash; one or two HLK-LD2410B sensors connected via USB (two are needed for direction)</span>
+             </th>
+           </tr>
+         </thead>
+@@ -672,7 +673,7 @@ $pluginVersion = pluginVersion();
+           <tr>
+             <td style="width:200px; padding:8px;">
+               <label class="mb-0">Enable Car Counter</label>
+-              <div class="text-muted small">Activates both radar sensors</div>
++              <div class="text-muted small">Activates the radar sensor(s)</div>
+             </td>
+             <td colspan="3" style="padding:8px;">
+               <div class="form-check form-switch">
+@@ -719,23 +720,24 @@ $pluginVersion = pluginVersion();
+               <label class="mb-0">
+                 <i class="fas fa-fw fa-plug"></i> Sensor B Port
+               </label>
+-              <div class="text-muted small">Second beam — mailbox-side</div>
++              <div class="text-muted small">Second beam — mailbox-side (None = single radar)</div>
+             </td>
+             <td style="padding:8px;">
+               <?php
+               $portB    = $cfg['ld2410']['B']['port'] ?? '/dev/ttyUSB1';
+-              $foundB   = in_array($portB, $serialPorts);
++              $foundB   = ($portB === '') || in_array($portB, $serialPorts);
+               $portsB   = $foundB ? $serialPorts : array_merge([$portB], $serialPorts);
+               ?>
+               <select name="ld2410_port_b" class="form-control form-control-sm"
+-                      title="USB serial port for Radar B. If both radars are plugged in simultaneously, USB0 and USB1 are assigned in order of detection — swap the physical USB cables if A and B are reversed.">
++                      title="USB serial port for Radar B. If both radars are plugged in simultaneously, USB0 and USB1 are assigned in order of detection — swap the physical USB cables if A and B are reversed. Choose None if you only have one radar.">
++                <option value="" <?php echo ($portB === '') ? 'selected' : ''; ?>>None (single radar)</option>
+                 <?php foreach ($portsB as $p): ?>
+                 <option value="<?php echo htmlspecialchars($p); ?>"
+                   <?php echo ($portB === $p) ? 'selected' : ''; ?>>
+                   <?php echo htmlspecialchars($p); ?>
+                 </option>
+                 <?php endforeach; ?>
+-                <?php if (empty($portsB)): ?>
++                <?php if (empty($portsB) && $portB !== ''): ?>
+                 <option value="<?php echo htmlspecialchars($portB); ?>" selected>
+                   <?php echo htmlspecialchars($portB); ?> (no ports detected)
+                 </option>
+@@ -744,6 +746,27 @@ $pluginVersion = pluginVersion();
+             </td>
+           </tr>
+ 
++          <!-- Radar mode -->
++          <tr>
++            <td style="padding:8px;">
++              <label class="mb-0">
++                <i class="fas fa-fw fa-satellite-dish"></i> Radar Mode
++                <span style="cursor:help; color:var(--bs-info);" title="Dual: a car is counted when Radar A and Radar B trigger in sequence, which also gives direction. Single: every detection on the one radar counts (no direction; counted as the Inbound label). Auto: single when only one radar port is set or only one configured port is plugged in at startup, otherwise dual.">
++                  <i class="fas fa-circle-question fa-xs"></i>
++                </span>
++              </label>
++              <div class="text-muted small">Auto picks single when only one radar is present</div>
++            </td>
++            <td colspan="3" style="padding:8px;">
++              <?php $ldMode = $cfg['ld2410']['mode'] ?? 'auto'; ?>
++              <select name="ld2410_mode" class="form-control form-control-sm" style="max-width:260px;">
++                <?php foreach (['auto' => 'Auto', 'dual' => 'Dual (A + B, with direction)', 'single' => 'Single radar (no direction)'] as $v => $lbl): ?>
++                <option value="<?php echo $v; ?>" <?php echo ($ldMode === $v) ? 'selected' : ''; ?>><?php echo $lbl; ?></option>
++                <?php endforeach; ?>
++              </select>
++            </td>
++          </tr>
++
+           <!-- Software min-energy thresholds -->
+           <tr>
+             <td style="padding:8px;">
+diff --git a/www/save.php b/www/save.php
+index 15b0408..151e2e1 100644
+--- a/www/save.php
++++ b/www/save.php
+@@ -122,7 +122,9 @@ $cfg["videos"]["special_2"] = pClips("special2_vid");
+ // ── LD2410 ────────────────────────────────────────────────────────────────
+ $cfg["ld2410"]["enabled"]            = pBool("ld2410_enabled");
+ $cfg["ld2410"]["A"]["port"]          = pStr("ld2410_port_a", "/dev/ttyUSB0");
+-$cfg["ld2410"]["B"]["port"]          = pStr("ld2410_port_b", "/dev/ttyUSB1");
++$cfg["ld2410"]["B"]["port"]          = pStr("ld2410_port_b", "/dev/ttyUSB1");  // "" = no radar B
++$ldMode = strtolower(pStr("ld2410_mode", $cfg["ld2410"]["mode"] ?? "auto"));
++$cfg["ld2410"]["mode"]               = in_array($ldMode, ["auto", "dual", "single"], true) ? $ldMode : "auto";
+ $cfg["ld2410"]["A"]["min_energy"]    = max(1, min(100, pInt("ld2410_min_energy_a", 20)));
+ $cfg["ld2410"]["B"]["min_energy"]    = max(1, min(100, pInt("ld2410_min_energy_b", 20)));
+ 
+-- 
+2.43.0
+
