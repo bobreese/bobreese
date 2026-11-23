@@ -179,7 +179,7 @@ index 8430599..2ce31b9 100644
    ];
    const payload = {};
 diff --git a/daemon.py b/daemon.py
-index 468ba50..508c72c 100644
+index 468ba50..bc230e9 100644
 --- a/daemon.py
 +++ b/daemon.py
 @@ -50,7 +50,7 @@ from flask import Flask, Response, jsonify, request
@@ -400,7 +400,7 @@ index 468ba50..508c72c 100644
          'camera':  {'index': cfg['camera_index'],
                      'width': cfg['camera_width'],
                      'height': cfg['camera_height'], 'fps': 30},
-@@ -390,8 +482,71 @@ def _build_tracking_config(cfg: dict) -> dict:
+@@ -390,8 +482,76 @@ def _build_tracking_config(cfg: dict) -> dict:
              'deadzone_px':    cfg['deadzone_px'],
              'face_smoothing': cfg.get('face_smoothing', 0.25),
              'tracking_mode':  cfg.get('tracking_mode', 'face'),
@@ -448,11 +448,16 @@ index 468ba50..508c72c 100644
 +        cam_w      = self._cfg.get('camera', {}).get('width', 640)
 +        deadzone   = lt_cfg.get('deadzone_px', 25) / cam_w
 +        err_x, err_y = sx - 0.5, sy - 0.5
++        # LiveTrackingMode.update() has already flipped sx/sy for the pan/tilt
++        # invert settings.  Those belong to the head only, so undo the pan
++        # flip for the torso: it steers on the subject's real frame position.
++        raw_err_x = -err_x if servo_cfgs.get('pan', {}).get('invert', False) else err_x
++        self.last_frame_x = 0.5 + raw_err_x
 +
 +        torso_cfg = servo_cfgs.get('torso')
-+        if torso_cfg and abs(err_x) > deadzone:
++        if torso_cfg and abs(raw_err_x) > deadzone:
 +            speed = float(torso_cfg.get('speed_limit', 45))
-+            vel   = speed * 2.0 * err_x
++            vel   = speed * 2.0 * raw_err_x
 +            if torso_cfg.get('invert', False):
 +                vel = -vel
 +            cur = self._servos.get_angle('torso')
@@ -472,7 +477,7 @@ index 468ba50..508c72c 100644
  
  
  # ── Daemon state ──────────────────────────────────────────────────────────────
-@@ -434,6 +589,8 @@ class LiveFollowDaemon:
+@@ -434,6 +594,8 @@ class LiveFollowDaemon:
          self._start_components()
          self._start_camera_thread()
          self._apply_trigger_mode()
@@ -481,7 +486,7 @@ index 468ba50..508c72c 100644
  
      # ── Component management ─────────────────────────────────────────────────
  
-@@ -465,7 +622,9 @@ class LiveFollowDaemon:
+@@ -465,7 +627,9 @@ class LiveFollowDaemon:
                                 width=cam_cfg['width'],
                                 height=cam_cfg['height'])
          self._tracker.start(cam_cfg['width'], cam_cfg['height'])
@@ -492,7 +497,7 @@ index 468ba50..508c72c 100644
  
      def _stop_components(self):
          if self._tracker:
-@@ -555,6 +714,53 @@ class LiveFollowDaemon:
+@@ -555,6 +719,53 @@ class LiveFollowDaemon:
                  time.sleep(3)
          threading.Thread(target=_loop, daemon=True, name='fpp-status-poll').start()
  
@@ -546,7 +551,7 @@ index 468ba50..508c72c 100644
      # ── Tracking control ─────────────────────────────────────────────────────
  
      def start_tracking(self):
-@@ -573,11 +779,9 @@ class LiveFollowDaemon:
+@@ -573,11 +784,9 @@ class LiveFollowDaemon:
                  self._mode.stop()
                  self._tracking = False
          self._overlay_active = False
@@ -560,7 +565,7 @@ index 468ba50..508c72c 100644
          print('[LiveFollow] Tracking stopped.')
  
      def _handle_overlay_release(self, body_in_frame: bool):
-@@ -597,9 +801,7 @@ class LiveFollowDaemon:
+@@ -597,9 +806,7 @@ class LiveFollowDaemon:
              timeout = float(self.cfg.get('follow_release_timeout', 1.5))
              if now - self._overlay_last_seen >= timeout:
                  self._overlay_active = False
@@ -571,3 +576,15 @@ index 468ba50..508c72c 100644
  
      # ── Motion sensor ────────────────────────────────────────────────────────
  
+@@ -667,6 +874,11 @@ class LiveFollowDaemon:
+             'follow_active':    self._follow_active,
+             'pan':              self._servos.get_angle('pan')  if self._servos else 90,
+             'tilt':             self._servos.get_angle('tilt') if self._servos else 90,
++            'torso':            (self._servos.get_angle('torso')
++                                 if self._servos and _torso_channel(self.cfg) >= 0 else None),
++            # body-mount mode: subject's smoothed position across the frame,
++            # 0 = left edge, 0.5 = centre, 1 = right edge (None until tracked)
++            'subject_x':        getattr(self._mode, 'last_frame_x', None),
+             'head_yaw':         float(r.head_yaw)   if r else 0.0,
+             'head_pitch':       float(r.head_pitch) if r else 0.0,
+             'cam_running':      self._cam_running,
