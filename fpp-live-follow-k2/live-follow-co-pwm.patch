@@ -1,5 +1,5 @@
 diff --git a/content.php b/content.php
-index 8430599..c38923b 100644
+index 8430599..b66a729 100644
 --- a/content.php
 +++ b/content.php
 @@ -12,19 +12,24 @@ $cam_running  = $status['cam_running']  ?? true;   // default true; false = came
@@ -38,7 +38,37 @@ index 8430599..c38923b 100644
      }
  }
  ?>
-@@ -221,6 +226,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -216,11 +221,37 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+       <?php endforeach; ?>
+     </select>
+   </div>
++  <div class="af-row">
++    <span class="af-label">Camera Mount</span>
++    <select class="af-select" id="cfg-camera_mount">
++      <?php
++      $mounts = [
++        'head' => 'On the head — turns with pan/tilt',
++        'body' => 'On the body / fixed — does not move with the head',
++      ];
++      $cur_mount = $cfg['camera_mount'] ?? 'head';
++      foreach ($mounts as $val => $label):
++      ?>
++        <option value="<?= $val ?>" <?= $cur_mount === $val ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
++      <?php endforeach; ?>
++    </select>
++  </div>
++  <div class="af-row" style="margin-bottom:12px;">
++    <span class="af-label">Head Aim (°)</span>
++    <span style="color:#888; font-size:12px;">Pan</span>
++    <input class="af-input" id="cfg-head_aim_pan" type="number" step="1" min="0" max="90" style="width:70px"
++           value="<?= htmlspecialchars((string)($cfg['head_aim_pan'] ?? 40)) ?>">
++    <span style="color:#888; font-size:12px;">Tilt</span>
++    <input class="af-input" id="cfg-head_aim_tilt" type="number" step="1" min="0" max="90" style="width:70px"
++           value="<?= htmlspecialchars((string)($cfg['head_aim_tilt'] ?? 25)) ?>">
++    <span style="color:#888; font-size:11px;">Body mount only: head turn when the person is at the frame edge</span>
++  </div>
+   <table style="border-collapse:collapse; font-size:13px; color:#e0e0e0;">
+     <tr style="color:#888; font-size:11px;">
        <td style="padding:4px 12px 4px 0;"></td>
        <td style="padding:4px 12px;">Pan</td>
        <td style="padding:4px 12px;">Tilt</td>
@@ -46,7 +76,7 @@ index 8430599..c38923b 100644
      </tr>
      <?php
      $servo_fields = [
-@@ -233,7 +239,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -233,7 +264,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
      ?>
      <tr>
        <td style="color:#888; padding:4px 12px 4px 0;"><?= $label ?></td>
@@ -55,7 +85,7 @@ index 8430599..c38923b 100644
        <td style="padding:4px 12px;">
          <input class="af-input" id="cfg-<?= sprintf($key_pat, $s) ?>"
                 type="<?= $type ?>" step="<?= $step ?>"
-@@ -244,7 +250,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -244,7 +275,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
      <?php endforeach; ?>
      <tr>
        <td style="color:#888; padding:4px 12px 4px 0;">Invert Direction</td>
@@ -64,7 +94,7 @@ index 8430599..c38923b 100644
        <td style="padding:4px 12px;">
          <input type="checkbox" id="cfg-servo_<?= $s ?>_invert"
                 <?= !empty($cfg["servo_{$s}_invert"]) ? 'checked' : '' ?>
-@@ -254,7 +260,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -254,7 +285,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
      </tr>
      <tr>
        <td style="color:#888; padding:4px 12px 4px 0;">Face Smoothing</td>
@@ -73,7 +103,7 @@ index 8430599..c38923b 100644
          <input class="af-input" id="cfg-face_smoothing" type="number" step="0.05" min="0.05" max="1"
                 value="<?= $cfg['face_smoothing'] ?? 0.25 ?>">
          <span style="color:#888; font-size:11px; margin-left:8px;">0.05 = smoothest, 1.0 = raw</span>
-@@ -262,7 +268,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -262,7 +293,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
      </tr>
      <tr>
        <td style="color:#888; padding:4px 12px 4px 0;">Deadzone (px)</td>
@@ -82,7 +112,7 @@ index 8430599..c38923b 100644
          <input class="af-input" id="cfg-deadzone_px" type="number"
                 value="<?= $cfg['deadzone_px'] ?? 25 ?>">
        </td>
-@@ -329,7 +335,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -329,7 +360,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
      </select>
      <?php else: ?>
      <input class="af-input" id="cfg-channel_pan" type="number" value="<?= (int)($cfg['channel_pan'] ?? 0) ?>">
@@ -91,7 +121,7 @@ index 8430599..c38923b 100644
      <?php endif; ?>
    </div>
    <div class="af-row">
-@@ -346,6 +352,31 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -346,6 +377,31 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
      <input class="af-input" id="cfg-channel_tilt" type="number" value="<?= (int)($cfg['channel_tilt'] ?? 1) ?>">
      <?php endif; ?>
    </div>
@@ -123,12 +153,13 @@ index 8430599..c38923b 100644
    <div style="margin-top:8px;">
      <button class="af-btn btn-save" onclick="saveConfig()">Save &amp; Apply</button>
    </div>
-@@ -380,10 +411,11 @@ function saveConfig() {
+@@ -380,10 +436,12 @@ function saveConfig() {
    const fields = [
      'trigger_mode','motion_sensor_pin','motion_timeout_sec','follow_release_timeout',
      'hardware_type','pca9685_address','pca9685_i2c_bus','pca9685_frequency',
 -    'channel_pan','channel_tilt',
 +    'channel_pan','channel_tilt','channel_torso','torso_follow',
++    'camera_mount','head_aim_pan','head_aim_tilt',
      'tracking_mode',
      'servo_pan_min','servo_pan_max','servo_pan_center','servo_pan_speed','servo_pan_invert',
      'servo_tilt_min','servo_tilt_max','servo_tilt_center','servo_tilt_speed','servo_tilt_invert',
@@ -137,10 +168,19 @@ index 8430599..c38923b 100644
    ];
    const payload = {};
 diff --git a/daemon.py b/daemon.py
-index 468ba50..b374fca 100644
+index 468ba50..508c72c 100644
 --- a/daemon.py
 +++ b/daemon.py
-@@ -130,6 +130,16 @@ DEFAULTS = {
+@@ -50,7 +50,7 @@ from flask import Flask, Response, jsonify, request
+ from core.camera import Camera
+ from core.servo_controller import ServoController, ServoBackend, create_backend
+ from core.tracker import Tracker
+-from modes.live_tracking import LiveTrackingMode
++from modes.live_tracking import LiveTrackingMode, _SERVO_DT
+ 
+ # ── Logging ───────────────────────────────────────────────────────────────────
+ # Mirror stdout/stderr into FPP's log directory so this always-on service's
+@@ -130,6 +130,26 @@ DEFAULTS = {
      'deadzone_px':            25,
      'tracking_mode':          'face',   # face | body | face_or_body
      'follow_release_timeout': 1.5,
@@ -154,10 +194,20 @@ index 468ba50..b374fca 100644
 +    'servo_torso_speed':      45,     # degrees/sec, slower than the head
 +    'servo_torso_invert':     False,
 +    'torso_follow':           0.5,
++    # Where the camera is mounted.  'head': it turns with the head pan/tilt
++    # (the original behaviour — the head turns until the subject is centred).
++    # 'body': it is fixed to the torso or the scene, so turning the head does
++    # not change the picture; the torso centres the subject instead and the
++    # head aims at the subject by its position in the frame.
++    'camera_mount':           'head',
++    # 'body' mount only: how far (in servo degrees) the head turns from center
++    # when the subject is at the left/right or top/bottom edge of the frame.
++    'head_aim_pan':           40,
++    'head_aim_tilt':          25,
  }
  
  def _load_cfg() -> dict:
-@@ -170,29 +180,77 @@ def _save_cfg(cfg: dict):
+@@ -170,29 +190,77 @@ def _save_cfg(cfg: dict):
      CFG_PATH.write_text(json.dumps(cfg, indent=2))
  
  _CO_OTHER_API = 'http://localhost/api/channel/output/co-other'
@@ -248,7 +298,7 @@ index 468ba50..b374fca 100644
                  dt       = p.get('dataType', 0)
                  is_16bit = dt in (2, 3, 5)
                  result.append({
-@@ -203,7 +261,8 @@ def _read_pca9685_port_configs() -> list:
+@@ -203,7 +271,8 @@ def _read_pca9685_port_configs() -> list:
                      'max_us':     float(p.get('max',    2000)),
                  })
                  sc += 2 if is_16bit else 1
@@ -258,7 +308,7 @@ index 468ba50..b374fca 100644
      except Exception as exc:
          print(f'[LiveFollow] Could not read PCA9685 port configs: {exc}')
      return []
-@@ -252,6 +311,22 @@ class FppOverlayServoBackend(ServoBackend):
+@@ -252,6 +321,22 @@ class FppOverlayServoBackend(ServoBackend):
      # ── Angle → FPP scaled value ──────────────────────────────────────────────
  
      def _angle_to_fpp_val(self, angle: float, port: dict) -> int:
@@ -281,7 +331,7 @@ index 468ba50..b374fca 100644
          pulse_us  = 1000.0 + (float(angle) / 180.0) * 1000.0
          min_us    = port['min_us']
          center_us = port['center_us']
-@@ -318,16 +393,14 @@ def _set_fpp_pca9685_output(enabled: bool):
+@@ -318,16 +403,14 @@ def _set_fpp_pca9685_output(enabled: bool):
      In fpp_overlay mode fppd's PCA9685 output must remain enabled.
      """
      try:
@@ -302,7 +352,7 @@ index 468ba50..b374fca 100644
                                        headers={'Content-Type': 'application/json'})
          urllib.request.urlopen(req, timeout=3)
          print(f'[LiveFollow] FPP PCA9685 output {"enabled" if enabled else "disabled"}.')
-@@ -352,20 +425,29 @@ def _ensure_fpp_pca9685_enabled():
+@@ -352,20 +435,29 @@ def _ensure_fpp_pca9685_enabled():
      except Exception:
          pass
      try:
@@ -339,8 +389,13 @@ index 468ba50..b374fca 100644
          'camera':  {'index': cfg['camera_index'],
                      'width': cfg['camera_width'],
                      'height': cfg['camera_height'], 'fps': 30},
-@@ -392,6 +474,17 @@ def _build_tracking_config(cfg: dict) -> dict:
+@@ -390,8 +482,71 @@ def _build_tracking_config(cfg: dict) -> dict:
+             'deadzone_px':    cfg['deadzone_px'],
+             'face_smoothing': cfg.get('face_smoothing', 0.25),
              'tracking_mode':  cfg.get('tracking_mode', 'face'),
++            'camera_mount':   cfg.get('camera_mount', 'head'),
++            'head_aim_pan':   float(cfg.get('head_aim_pan', 40)),
++            'head_aim_tilt':  float(cfg.get('head_aim_tilt', 25)),
          },
      }
 +    torso_ch = _torso_channel(cfg)
@@ -354,10 +409,59 @@ index 468ba50..b374fca 100644
 +            'invert':       bool(cfg.get('servo_torso_invert', False)),
 +        }
 +    return tc
++
++
++# ── Body-mounted camera tracking ─────────────────────────────────────────────
++
++class BodyCamTrackingMode(LiveTrackingMode):
++    """Tracking for a camera fixed to the torso (or the scene), not the head.
++
++    The head cannot change what the camera sees, so a closed loop on the head
++    would just drive it to its limits.  Instead:
++      * torso (if configured): closed loop — turns until the subject is
++        centred in the frame, at up to servo_torso_speed deg/sec;
++      * head pan/tilt: aims at the subject from its position in the frame,
++        center + head_aim x 2 x (position - 0.5), rate-limited by each
++        servo's speed.  As the torso catches up the subject drifts to the
++        middle of the frame and the head eases back to center.
++    """
++
++    @staticmethod
++    def _toward(cur: float, target: float, speed: float, lo: float, hi: float) -> float:
++        step = max(-speed * _SERVO_DT, min(speed * _SERVO_DT, target - cur))
++        return max(lo, min(hi, cur + step))
++
++    def _step(self, sx: float, sy: float):
++        lt_cfg     = self._cfg.get('live_tracking', {})
++        servo_cfgs = self._cfg.get('servos', {})
++        cam_w      = self._cfg.get('camera', {}).get('width', 640)
++        deadzone   = lt_cfg.get('deadzone_px', 25) / cam_w
++        err_x, err_y = sx - 0.5, sy - 0.5
++
++        torso_cfg = servo_cfgs.get('torso')
++        if torso_cfg and abs(err_x) > deadzone:
++            speed = float(torso_cfg.get('speed_limit', 45))
++            vel   = speed * 2.0 * err_x
++            if torso_cfg.get('invert', False):
++                vel = -vel
++            cur = self._servos.get_angle('torso')
++            self._servos.set_servo('torso', self._toward(
++                cur, cur + vel * _SERVO_DT, speed,
++                torso_cfg.get('min_angle', 0), torso_cfg.get('max_angle', 180)))
++
++        for name, err, aim_key in (('pan', err_x, 'head_aim_pan'),
++                                   ('tilt', err_y, 'head_aim_tilt')):
++            cfg = servo_cfgs.get(name, {})
++            target = (float(cfg.get('center_angle', 90))
++                      + float(lt_cfg.get(aim_key, 30)) * 2.0 * err)
++            self._servos.set_servo(name, self._toward(
++                self._servos.get_angle(name), target,
++                float(cfg.get('speed_limit', 150)),
++                cfg.get('min_angle', 0), cfg.get('max_angle', 180)))
  
  
  # ── Daemon state ──────────────────────────────────────────────────────────────
-@@ -434,6 +527,8 @@ class LiveFollowDaemon:
+@@ -434,6 +589,8 @@ class LiveFollowDaemon:
          self._start_components()
          self._start_camera_thread()
          self._apply_trigger_mode()
@@ -366,7 +470,18 @@ index 468ba50..b374fca 100644
  
      # ── Component management ─────────────────────────────────────────────────
  
-@@ -555,6 +650,52 @@ class LiveFollowDaemon:
+@@ -465,7 +622,9 @@ class LiveFollowDaemon:
+                                width=cam_cfg['width'],
+                                height=cam_cfg['height'])
+         self._tracker.start(cam_cfg['width'], cam_cfg['height'])
+-        self._mode = LiveTrackingMode(self._servos, tc)
++        mode_cls = (BodyCamTrackingMode if self.cfg.get('camera_mount') == 'body'
++                    else LiveTrackingMode)
++        self._mode = mode_cls(self._servos, tc)
+ 
+     def _stop_components(self):
+         if self._tracker:
+@@ -555,6 +714,53 @@ class LiveFollowDaemon:
                  time.sleep(3)
          threading.Thread(target=_loop, daemon=True, name='fpp-status-poll').start()
  
@@ -394,8 +509,9 @@ index 468ba50..b374fca 100644
 +                cfg    = self.cfg
 +                servos = self._servos
 +                if (not self._tracking or servos is None
-+                        or _torso_channel(cfg) < 0):
-+                    continue
++                        or _torso_channel(cfg) < 0
++                        or cfg.get('camera_mount') == 'body'):
++                    continue   # body-mounted camera: BodyCamTrackingMode drives the torso
 +                if (isinstance(servos._backend, FppOverlayServoBackend)
 +                        and not self._overlay_active):
 +                    continue
@@ -419,7 +535,7 @@ index 468ba50..b374fca 100644
      # ── Tracking control ─────────────────────────────────────────────────────
  
      def start_tracking(self):
-@@ -573,11 +714,9 @@ class LiveFollowDaemon:
+@@ -573,11 +779,9 @@ class LiveFollowDaemon:
                  self._mode.stop()
                  self._tracking = False
          self._overlay_active = False
@@ -433,7 +549,7 @@ index 468ba50..b374fca 100644
          print('[LiveFollow] Tracking stopped.')
  
      def _handle_overlay_release(self, body_in_frame: bool):
-@@ -597,9 +736,7 @@ class LiveFollowDaemon:
+@@ -597,9 +801,7 @@ class LiveFollowDaemon:
              timeout = float(self.cfg.get('follow_release_timeout', 1.5))
              if now - self._overlay_last_seen >= timeout:
                  self._overlay_active = False
