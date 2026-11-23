@@ -1,0 +1,54 @@
+diff --git a/main/Kconfig.projbuild b/main/Kconfig.projbuild
+index b21bab8..93d2693 100644
+--- a/main/Kconfig.projbuild
++++ b/main/Kconfig.projbuild
+@@ -11,7 +11,7 @@ menu "USB WebCam config"
+ 
+         choice CAMERA_MODULE
+             bool "Select Camera Pinout"
+-            default CAMERA_MODULE_ESP_S3_EYE if IDF_TARGET_ESP32S3
++            default CAMERA_MODULE_XIAO_ESP32S3_SENSE if IDF_TARGET_ESP32S3
+             default CAMERA_MODULE_ESP_S2_KALUGA if IDF_TARGET_ESP32S2
+             help
+                 Select Camera Pinout.
+@@ -22,6 +22,8 @@ menu "USB WebCam config"
+                 bool "ESP-S3-EYE DevKit"
+             config CAMERA_MODULE_ESP_S3_KORVO2
+                 bool "ESP-S3-Korvo-2"
++            config CAMERA_MODULE_XIAO_ESP32S3_SENSE
++                bool "Seeed Studio XIAO ESP32-S3 Sense"
+             config CAMERA_MODULE_CUSTOM
+                 bool "Custom Camera Pinout"
+         endchoice
+diff --git a/main/camera_pin.h b/main/camera_pin.h
+index 780539b..93a7ad7 100644
+--- a/main/camera_pin.h
++++ b/main/camera_pin.h
+@@ -75,6 +75,27 @@
+ #define CAMERA_PIN_D6 41
+ #define CAMERA_PIN_D7 39
+ 
++#elif CONFIG_CAMERA_MODULE_XIAO_ESP32S3_SENSE
++#define CAMERA_MODULE_NAME "XIAO_ESP32S3_SENSE"
++#define CAMERA_MODULE_SOC "esp32s3"
++#define CAMERA_PIN_PWDN -1
++#define CAMERA_PIN_RESET -1
++#define CAMERA_PIN_XCLK 10
++#define CAMERA_PIN_SIOD 40
++#define CAMERA_PIN_SIOC 39
++
++#define CAMERA_PIN_D7 48
++#define CAMERA_PIN_D6 11
++#define CAMERA_PIN_D5 12
++#define CAMERA_PIN_D4 14
++#define CAMERA_PIN_D3 16
++#define CAMERA_PIN_D2 18
++#define CAMERA_PIN_D1 17
++#define CAMERA_PIN_D0 15
++#define CAMERA_PIN_VSYNC 38
++#define CAMERA_PIN_HREF 47
++#define CAMERA_PIN_PCLK 13
++
+ #elif CONFIG_CAMERA_MODULE_CUSTOM
+ #define CAMERA_MODULE_NAME "CUSTOM"
+ #define CAMERA_MODULE_SOC "custom"
