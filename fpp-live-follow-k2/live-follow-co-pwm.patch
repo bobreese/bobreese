@@ -1,5 +1,5 @@
 diff --git a/content.php b/content.php
-index 8430599..b66a729 100644
+index 8430599..eb83ebc 100644
 --- a/content.php
 +++ b/content.php
 @@ -12,19 +12,24 @@ $cam_running  = $status['cam_running']  ?? true;   // default true; false = came
@@ -38,7 +38,18 @@ index 8430599..b66a729 100644
      }
  }
  ?>
-@@ -216,11 +221,37 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -47,6 +52,10 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+ .badge-seq    { background:#f8961e; color:#000; }
+ .af-select    { background:#0f3460; color:#e0e0e0; border:1px solid #4cc9f0; border-radius:4px; padding:5px 10px; font-size:13px; }
+ .af-input     { background:#0f3460; color:#e0e0e0; border:1px solid #555; border-radius:4px; padding:5px 8px; width:70px; font-size:13px; }
++/* FPP 10's theme styles inputs with higher specificity; keep the values readable */
++.af-card input.af-input, .af-card select.af-select {
++  background:#0f3460 !important; color:#e0e0e0 !important; -webkit-text-fill-color:#e0e0e0;
++}
+ .af-stream    { border:2px solid #0f3460; border-radius:6px; max-width:100%; }
+ #status-msg   { color:#06d6a0; font-size:12px; margin-top:6px; min-height:18px; }
+ </style>
+@@ -216,11 +225,37 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
        <?php endforeach; ?>
      </select>
    </div>
@@ -76,7 +87,7 @@ index 8430599..b66a729 100644
      </tr>
      <?php
      $servo_fields = [
-@@ -233,7 +264,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -233,7 +268,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
      ?>
      <tr>
        <td style="color:#888; padding:4px 12px 4px 0;"><?= $label ?></td>
@@ -85,7 +96,7 @@ index 8430599..b66a729 100644
        <td style="padding:4px 12px;">
          <input class="af-input" id="cfg-<?= sprintf($key_pat, $s) ?>"
                 type="<?= $type ?>" step="<?= $step ?>"
-@@ -244,7 +275,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -244,7 +279,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
      <?php endforeach; ?>
      <tr>
        <td style="color:#888; padding:4px 12px 4px 0;">Invert Direction</td>
@@ -94,7 +105,7 @@ index 8430599..b66a729 100644
        <td style="padding:4px 12px;">
          <input type="checkbox" id="cfg-servo_<?= $s ?>_invert"
                 <?= !empty($cfg["servo_{$s}_invert"]) ? 'checked' : '' ?>
-@@ -254,7 +285,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -254,7 +289,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
      </tr>
      <tr>
        <td style="color:#888; padding:4px 12px 4px 0;">Face Smoothing</td>
@@ -103,7 +114,7 @@ index 8430599..b66a729 100644
          <input class="af-input" id="cfg-face_smoothing" type="number" step="0.05" min="0.05" max="1"
                 value="<?= $cfg['face_smoothing'] ?? 0.25 ?>">
          <span style="color:#888; font-size:11px; margin-left:8px;">0.05 = smoothest, 1.0 = raw</span>
-@@ -262,7 +293,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -262,7 +297,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
      </tr>
      <tr>
        <td style="color:#888; padding:4px 12px 4px 0;">Deadzone (px)</td>
@@ -112,7 +123,7 @@ index 8430599..b66a729 100644
          <input class="af-input" id="cfg-deadzone_px" type="number"
                 value="<?= $cfg['deadzone_px'] ?? 25 ?>">
        </td>
-@@ -329,7 +360,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -329,7 +364,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
      </select>
      <?php else: ?>
      <input class="af-input" id="cfg-channel_pan" type="number" value="<?= (int)($cfg['channel_pan'] ?? 0) ?>">
@@ -121,7 +132,7 @@ index 8430599..b66a729 100644
      <?php endif; ?>
    </div>
    <div class="af-row">
-@@ -346,6 +377,31 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -346,6 +381,31 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
      <input class="af-input" id="cfg-channel_tilt" type="number" value="<?= (int)($cfg['channel_tilt'] ?? 1) ?>">
      <?php endif; ?>
    </div>
@@ -153,7 +164,7 @@ index 8430599..b66a729 100644
    <div style="margin-top:8px;">
      <button class="af-btn btn-save" onclick="saveConfig()">Save &amp; Apply</button>
    </div>
-@@ -380,10 +436,12 @@ function saveConfig() {
+@@ -380,10 +440,12 @@ function saveConfig() {
    const fields = [
      'trigger_mode','motion_sensor_pin','motion_timeout_sec','follow_release_timeout',
      'hardware_type','pca9685_address','pca9685_i2c_bus','pca9685_frequency',
