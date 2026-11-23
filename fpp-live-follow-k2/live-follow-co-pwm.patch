@@ -1,5 +1,5 @@
 diff --git a/content.php b/content.php
-index 8430599..eb83ebc 100644
+index 8430599..2ce31b9 100644
 --- a/content.php
 +++ b/content.php
 @@ -12,19 +12,24 @@ $cam_running  = $status['cam_running']  ?? true;   // default true; false = came
@@ -43,8 +43,8 @@ index 8430599..eb83ebc 100644
  .af-select    { background:#0f3460; color:#e0e0e0; border:1px solid #4cc9f0; border-radius:4px; padding:5px 10px; font-size:13px; }
  .af-input     { background:#0f3460; color:#e0e0e0; border:1px solid #555; border-radius:4px; padding:5px 8px; width:70px; font-size:13px; }
 +/* FPP 10's theme styles inputs with higher specificity; keep the values readable */
-+.af-card input.af-input, .af-card select.af-select {
-+  background:#0f3460 !important; color:#e0e0e0 !important; -webkit-text-fill-color:#e0e0e0;
++.af-card input.af-input {
++  color:#e0e0e0 !important; -webkit-text-fill-color:#e0e0e0;
 +}
  .af-stream    { border:2px solid #0f3460; border-radius:6px; max-width:100%; }
  #status-msg   { color:#06d6a0; font-size:12px; margin-top:6px; min-height:18px; }
