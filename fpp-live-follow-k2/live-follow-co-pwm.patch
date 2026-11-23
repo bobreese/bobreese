@@ -1,0 +1,215 @@
+diff --git a/content.php b/content.php
+index 8430599..c2f048b 100644
+--- a/content.php
++++ b/content.php
+@@ -12,19 +12,24 @@ $cam_running  = $status['cam_running']  ?? true;   // default true; false = came
+ $trigger_mode = $cfg['trigger_mode']    ?? 'always_on';
+ $hw_type      = $cfg['hardware_type']   ?? 'mock';
+ 
+-// Build servo channel list from FPP's co-other config (same source as servo
+-// calibrator) via the API — co-other.json's on-disk format isn't a stable
+-// contract across FPP releases, the API is.
++// Build servo channel list from FPP's PCA9685 config via the API (the on-disk
++// JSON format isn't a stable contract across FPP releases, the API is).
++// FPP 10 cape outputs (e.g. K2-Pi-Servo) live in co-pwm under "outputs";
++// older standalone PCA9685 configs live in co-other under "ports".
++// Uses the first PCA9685 found, the same one daemon.py drives.
+ $servo_ports = [];   // [['value'=>port_idx, 'label'=>'Port 0 — Pan', 'out'=>out_idx], ...]
+ $co_other_ctx = stream_context_create(['http' => ['timeout' => 3]]);
+-$co = @json_decode(@file_get_contents('http://localhost/api/channel/output/co-other', false, $co_other_ctx), true) ?? [];
+-foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+-    if (empty($out['ports'])) continue;
+-    $prefix = count($co['channelOutputs']) > 1 ? "Out$out_idx · " : '';
+-    foreach ($out['ports'] as $port_idx => $port) {
+-        $desc  = trim($port['description'] ?? '');
+-        $label = $prefix . "Port $port_idx" . ($desc !== '' ? " — $desc" : '');
+-        $servo_ports[] = ['value' => $port_idx, 'label' => $label, 'out' => $out_idx];
++foreach (['co-pwm', 'co-other'] as $co_file) {
++    $co = @json_decode(@file_get_contents('http://localhost/api/channel/output/' . $co_file, false, $co_other_ctx), true) ?? [];
++    foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
++        if (($out['type'] ?? '') !== 'PCA9685') continue;
++        $ports = $out['outputs'] ?? $out['ports'] ?? [];
++        foreach ($ports as $port_idx => $port) {
++            $desc  = trim($port['description'] ?? '');
++            $label = "Port $port_idx" . ($desc !== '' ? " — $desc" : '');
++            $servo_ports[] = ['value' => $port_idx, 'label' => $label, 'out' => $out_idx];
++        }
++        break 2;
+     }
+ }
+ ?>
+@@ -329,7 +334,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+     </select>
+     <?php else: ?>
+     <input class="af-input" id="cfg-channel_pan" type="number" value="<?= (int)($cfg['channel_pan'] ?? 0) ?>">
+-    <span style="color:#888; font-size:11px; margin-left:8px;">No servo outputs in co-other.json</span>
++    <span style="color:#888; font-size:11px; margin-left:8px;">No PCA9685 servo outputs found in FPP Channel Outputs</span>
+     <?php endif; ?>
+   </div>
+   <div class="af-row">
+diff --git a/daemon.py b/daemon.py
+index 468ba50..8391fa4 100644
+--- a/daemon.py
++++ b/daemon.py
+@@ -170,29 +170,77 @@ def _save_cfg(cfg: dict):
+     CFG_PATH.write_text(json.dumps(cfg, indent=2))
+ 
+ _CO_OTHER_API = 'http://localhost/api/channel/output/co-other'
++# FPP 10 keeps cape-based PCA9685 outputs (e.g. K2-Pi-Servo) in co-pwm, with
++# an "outputs" list where every port carries its own 0-based startChannel.
++_CO_PWM_API   = 'http://localhost/api/channel/output/co-pwm'
++_CO_APIS      = (_CO_PWM_API, _CO_OTHER_API)
+ 
+ 
+-def _fetch_co_other_cfg() -> dict:
+-    """Read the co-other channel-output config through FPP's API rather than
+-    parsing co-other.json directly — the file's format isn't a stable contract
+-    across FPP releases, the API is."""
+-    with urllib.request.urlopen(_CO_OTHER_API, timeout=3) as resp:
++def _fetch_co_cfg(api: str) -> dict:
++    """Read a channel-output config through FPP's API rather than parsing the
++    JSON files directly — the files' format isn't a stable contract across FPP
++    releases, the API is."""
++    with urllib.request.urlopen(api, timeout=3) as resp:
+         return json.loads(resp.read())
+ 
+ 
++def _fetch_co_other_cfg() -> dict:
++    return _fetch_co_cfg(_CO_OTHER_API)
++
++
++def _find_pca9685_output():
++    """Return (api, cfg, output) for the first PCA9685 output, checking co-pwm
++    (FPP 10 cape outputs) before co-other (older standalone PCA9685 config)."""
++    for api in _CO_APIS:
++        try:
++            cfg = _fetch_co_cfg(api)
++        except Exception:
++            continue
++        if not isinstance(cfg, dict):
++            continue
++        for out in cfg.get('channelOutputs', []):
++            if out.get('type') == 'PCA9685':
++                return api, cfg, out
++    return None, None, None
++
++
+ # ── FPP overlay servo backend ─────────────────────────────────────────────────
+ 
+ def _read_pca9685_port_configs() -> list:
+-    """Turn the co-other config into a per-port config list for FppOverlayServoBackend."""
++    """Turn FPP's PCA9685 config into a per-port config list for FppOverlayServoBackend."""
+     try:
+-        cfg = _fetch_co_other_cfg()
+-        for out in cfg.get('channelOutputs', []):
+-            if out.get('type') != 'PCA9685':
+-                continue
++        api, _cfg, out = _find_pca9685_output()
++        if out is None:
++            print('[LiveFollow] No PCA9685 output found in co-pwm or co-other.')
++            return []
++        result = []
++        if 'outputs' in out:
++            # co-pwm format (FPP 10, cape subType such as K2-Pi-Servo).
++            # Mirrors PCA9685Output::loadPortConfig: per-port startChannel is a
++            # 0-based buffer index; center defaults to (min+max)/2.
++            sc = int(out.get('startChannel', 0))
++            for p in out.get('outputs', []):
++                is_16bit = bool(int(p.get('is16bit', 1)))
++                start0   = int(p['startChannel']) if 'startChannel' in p else sc
++                mn, mx   = float(p.get('min', 1000)), float(p.get('max', 2000))
++                center   = float(p['center']) if 'center' in p else float(int((mn + mx) / 2))
++                result.append({
++                    'fpp_start_channel': start0 + 1,   # overlay API is 1-based
++                    'is_16bit':   is_16bit,
++                    'min_us':     mn,
++                    'center_us':  center,
++                    'max_us':     mx,
++                    'reverse':    bool(int(p.get('reverse', 0))),
++                    # 0..180 deg spans FPP's calibrated min..max for this port
++                    'calibrated': True,
++                    'description': p.get('description', ''),
++                })
++                if 'startChannel' not in p:
++                    sc += 2 if is_16bit else 1
++        else:
++            # Legacy co-other format (standalone PCA9685 with deviceID/ports).
+             sc    = out.get('startChannel', 1)
+-            ports = out.get('ports', [])
+-            result = []
+-            for p in ports:
++            for p in out.get('ports', []):
+                 dt       = p.get('dataType', 0)
+                 is_16bit = dt in (2, 3, 5)
+                 result.append({
+@@ -203,7 +251,8 @@ def _read_pca9685_port_configs() -> list:
+                     'max_us':     float(p.get('max',    2000)),
+                 })
+                 sc += 2 if is_16bit else 1
+-            return result
++        print(f'[LiveFollow] Loaded {len(result)} PCA9685 ports from {api.rsplit("/", 1)[-1]}.')
++        return result
+     except Exception as exc:
+         print(f'[LiveFollow] Could not read PCA9685 port configs: {exc}')
+     return []
+@@ -252,6 +301,22 @@ class FppOverlayServoBackend(ServoBackend):
+     # ── Angle → FPP scaled value ──────────────────────────────────────────────
+ 
+     def _angle_to_fpp_val(self, angle: float, port: dict) -> int:
++        if port.get('calibrated'):
++            # 0 deg → port min, 90 → center, 180 → max, using FPP's own
++            # servo calibration from Channel Outputs.  FPP applies 'reverse'
++            # itself, so no inversion here.
++            a = max(0.0, min(180.0, float(angle)))
++            if port['is_16bit']:
++                if a <= 90.0:
++                    val = 1 + round(a / 90.0 * 32766)
++                else:
++                    val = 32768 + round((a - 90.0) / 90.0 * 32767)
++                return max(1, min(65535, val))
++            if a <= 90.0:
++                val = 1 + round(a / 90.0 * 126)
++            else:
++                val = 128 + round((a - 90.0) / 90.0 * 127)
++            return max(1, min(255, val))
+         pulse_us  = 1000.0 + (float(angle) / 180.0) * 1000.0
+         min_us    = port['min_us']
+         center_us = port['center_us']
+@@ -318,16 +383,14 @@ def _set_fpp_pca9685_output(enabled: bool):
+     In fpp_overlay mode fppd's PCA9685 output must remain enabled.
+     """
+     try:
+-        cfg = _fetch_co_other_cfg()
+-        changed = False
++        api, cfg, _out = _find_pca9685_output()
++        if cfg is None:
++            return
+         for out in cfg.get('channelOutputs', []):
+             if out.get('type') == 'PCA9685':
+                 out['enabled'] = 1 if enabled else 0
+-                changed = True
+-        if not changed:
+-            return
+         data = json.dumps(cfg).encode()
+-        req  = urllib.request.Request(_CO_OTHER_API, data=data, method='POST',
++        req  = urllib.request.Request(api, data=data, method='POST',
+                                       headers={'Content-Type': 'application/json'})
+         urllib.request.urlopen(req, timeout=3)
+         print(f'[LiveFollow] FPP PCA9685 output {"enabled" if enabled else "disabled"}.')
+@@ -352,12 +415,10 @@ def _ensure_fpp_pca9685_enabled():
+     except Exception:
+         pass
+     try:
+-        cfg = _fetch_co_other_cfg()
+-        for out in cfg.get('channelOutputs', []):
+-            if out.get('type') == 'PCA9685' and not out.get('enabled', 1):
+-                print('[LiveFollow] Re-enabling FPP PCA9685 output (was disabled).')
+-                _set_fpp_pca9685_output(True)
+-                return
++        _api, _cfg, out = _find_pca9685_output()
++        if out is not None and not out.get('enabled', 1):
++            print('[LiveFollow] Re-enabling FPP PCA9685 output (was disabled).')
++            _set_fpp_pca9685_output(True)
+     except Exception:
+         pass
+ 
