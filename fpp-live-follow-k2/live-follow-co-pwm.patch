@@ -1,5 +1,5 @@
 diff --git a/content.php b/content.php
-index 8430599..c2f048b 100644
+index 8430599..c38923b 100644
 --- a/content.php
 +++ b/content.php
 @@ -12,19 +12,24 @@ $cam_running  = $status['cam_running']  ?? true;   // default true; false = came
@@ -38,7 +38,51 @@ index 8430599..c2f048b 100644
      }
  }
  ?>
-@@ -329,7 +334,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+@@ -221,6 +226,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+       <td style="padding:4px 12px 4px 0;"></td>
+       <td style="padding:4px 12px;">Pan</td>
+       <td style="padding:4px 12px;">Tilt</td>
++      <td style="padding:4px 12px;">Torso</td>
+     </tr>
+     <?php
+     $servo_fields = [
+@@ -233,7 +239,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+     ?>
+     <tr>
+       <td style="color:#888; padding:4px 12px 4px 0;"><?= $label ?></td>
+-      <?php foreach (['pan', 'tilt'] as $s): ?>
++      <?php foreach (['pan', 'tilt', 'torso'] as $s): ?>
+       <td style="padding:4px 12px;">
+         <input class="af-input" id="cfg-<?= sprintf($key_pat, $s) ?>"
+                type="<?= $type ?>" step="<?= $step ?>"
+@@ -244,7 +250,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+     <?php endforeach; ?>
+     <tr>
+       <td style="color:#888; padding:4px 12px 4px 0;">Invert Direction</td>
+-      <?php foreach (['pan', 'tilt'] as $s): ?>
++      <?php foreach (['pan', 'tilt', 'torso'] as $s): ?>
+       <td style="padding:4px 12px;">
+         <input type="checkbox" id="cfg-servo_<?= $s ?>_invert"
+                <?= !empty($cfg["servo_{$s}_invert"]) ? 'checked' : '' ?>
+@@ -254,7 +260,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+     </tr>
+     <tr>
+       <td style="color:#888; padding:4px 12px 4px 0;">Face Smoothing</td>
+-      <td colspan="2" style="padding:4px 12px;">
++      <td colspan="3" style="padding:4px 12px;">
+         <input class="af-input" id="cfg-face_smoothing" type="number" step="0.05" min="0.05" max="1"
+                value="<?= $cfg['face_smoothing'] ?? 0.25 ?>">
+         <span style="color:#888; font-size:11px; margin-left:8px;">0.05 = smoothest, 1.0 = raw</span>
+@@ -262,7 +268,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+     </tr>
+     <tr>
+       <td style="color:#888; padding:4px 12px 4px 0;">Deadzone (px)</td>
+-      <td colspan="2" style="padding:4px 12px;">
++      <td colspan="3" style="padding:4px 12px;">
+         <input class="af-input" id="cfg-deadzone_px" type="number"
+                value="<?= $cfg['deadzone_px'] ?? 25 ?>">
+       </td>
+@@ -329,7 +335,7 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
      </select>
      <?php else: ?>
      <input class="af-input" id="cfg-channel_pan" type="number" value="<?= (int)($cfg['channel_pan'] ?? 0) ?>">
@@ -47,11 +91,73 @@ index 8430599..c2f048b 100644
      <?php endif; ?>
    </div>
    <div class="af-row">
+@@ -346,6 +352,31 @@ foreach ($co['channelOutputs'] ?? [] as $out_idx => $out) {
+     <input class="af-input" id="cfg-channel_tilt" type="number" value="<?= (int)($cfg['channel_tilt'] ?? 1) ?>">
+     <?php endif; ?>
+   </div>
++  <div class="af-row">
++    <span class="af-label">Torso Channel</span>
++    <?php $torso_ch = (int)($cfg['channel_torso'] ?? -1); ?>
++    <?php if ($servo_ports): ?>
++    <select class="af-select" id="cfg-channel_torso">
++      <option value="-1" <?= $torso_ch < 0 ? 'selected' : '' ?>>None</option>
++      <?php foreach ($servo_ports as $p):
++        $sel = ($torso_ch === (int)$p['value']) ? 'selected' : '';
++      ?>
++        <option value="<?= (int)$p['value'] ?>" <?= $sel ?>><?= htmlspecialchars($p['label']) ?></option>
++      <?php endforeach; ?>
++    </select>
++    <?php else: ?>
++    <input class="af-input" id="cfg-channel_torso" type="number" value="<?= $torso_ch ?>">
++    <span style="color:#888; font-size:11px; margin-left:8px;">-1 = none</span>
++    <?php endif; ?>
++  </div>
++  <div class="af-row">
++    <span class="af-label">Torso Follow</span>
++    <input class="af-input" id="cfg-torso_follow" type="number" step="0.05" min="0" max="1" style="width:80px"
++           value="<?= htmlspecialchars((string)($cfg['torso_follow'] ?? 0.5)) ?>">
++    <span style="color:#888; font-size:11px; margin-left:8px;">
++      Share of the head's turn the torso copies (0 = still, 0.5 = half, 1 = all)
++    </span>
++  </div>
+   <div style="margin-top:8px;">
+     <button class="af-btn btn-save" onclick="saveConfig()">Save &amp; Apply</button>
+   </div>
+@@ -380,10 +411,11 @@ function saveConfig() {
+   const fields = [
+     'trigger_mode','motion_sensor_pin','motion_timeout_sec','follow_release_timeout',
+     'hardware_type','pca9685_address','pca9685_i2c_bus','pca9685_frequency',
+-    'channel_pan','channel_tilt',
++    'channel_pan','channel_tilt','channel_torso','torso_follow',
+     'tracking_mode',
+     'servo_pan_min','servo_pan_max','servo_pan_center','servo_pan_speed','servo_pan_invert',
+     'servo_tilt_min','servo_tilt_max','servo_tilt_center','servo_tilt_speed','servo_tilt_invert',
++    'servo_torso_min','servo_torso_max','servo_torso_center','servo_torso_speed','servo_torso_invert',
+     'face_smoothing','deadzone_px',
+   ];
+   const payload = {};
 diff --git a/daemon.py b/daemon.py
-index 468ba50..8391fa4 100644
+index 468ba50..b374fca 100644
 --- a/daemon.py
 +++ b/daemon.py
-@@ -170,29 +170,77 @@ def _save_cfg(cfg: dict):
+@@ -130,6 +130,16 @@ DEFAULTS = {
+     'deadzone_px':            25,
+     'tracking_mode':          'face',   # face | body | face_or_body
+     'follow_release_timeout': 1.5,
++    # Optional third servo: a torso that turns toward the subject along with
++    # the head pan.  -1 = no torso.  torso_follow is how much of the head's
++    # pan offset from center the torso copies (0.5 = half, 1.0 = all of it).
++    'channel_torso':          -1,
++    'servo_torso_min':        0,
++    'servo_torso_max':        180,
++    'servo_torso_center':     90,
++    'servo_torso_speed':      45,     # degrees/sec, slower than the head
++    'servo_torso_invert':     False,
++    'torso_follow':           0.5,
+ }
+ 
+ def _load_cfg() -> dict:
+@@ -170,29 +180,77 @@ def _save_cfg(cfg: dict):
      CFG_PATH.write_text(json.dumps(cfg, indent=2))
  
  _CO_OTHER_API = 'http://localhost/api/channel/output/co-other'
@@ -142,7 +248,7 @@ index 468ba50..8391fa4 100644
                  dt       = p.get('dataType', 0)
                  is_16bit = dt in (2, 3, 5)
                  result.append({
-@@ -203,7 +251,8 @@ def _read_pca9685_port_configs() -> list:
+@@ -203,7 +261,8 @@ def _read_pca9685_port_configs() -> list:
                      'max_us':     float(p.get('max',    2000)),
                  })
                  sc += 2 if is_16bit else 1
@@ -152,7 +258,7 @@ index 468ba50..8391fa4 100644
      except Exception as exc:
          print(f'[LiveFollow] Could not read PCA9685 port configs: {exc}')
      return []
-@@ -252,6 +301,22 @@ class FppOverlayServoBackend(ServoBackend):
+@@ -252,6 +311,22 @@ class FppOverlayServoBackend(ServoBackend):
      # ── Angle → FPP scaled value ──────────────────────────────────────────────
  
      def _angle_to_fpp_val(self, angle: float, port: dict) -> int:
@@ -175,7 +281,7 @@ index 468ba50..8391fa4 100644
          pulse_us  = 1000.0 + (float(angle) / 180.0) * 1000.0
          min_us    = port['min_us']
          center_us = port['center_us']
-@@ -318,16 +383,14 @@ def _set_fpp_pca9685_output(enabled: bool):
+@@ -318,16 +393,14 @@ def _set_fpp_pca9685_output(enabled: bool):
      In fpp_overlay mode fppd's PCA9685 output must remain enabled.
      """
      try:
@@ -196,7 +302,7 @@ index 468ba50..8391fa4 100644
                                        headers={'Content-Type': 'application/json'})
          urllib.request.urlopen(req, timeout=3)
          print(f'[LiveFollow] FPP PCA9685 output {"enabled" if enabled else "disabled"}.')
-@@ -352,12 +415,10 @@ def _ensure_fpp_pca9685_enabled():
+@@ -352,20 +425,29 @@ def _ensure_fpp_pca9685_enabled():
      except Exception:
          pass
      try:
@@ -212,4 +318,129 @@ index 468ba50..8391fa4 100644
 +            _set_fpp_pca9685_output(True)
      except Exception:
          pass
+ 
+ 
+ # ── Tracking config builder ───────────────────────────────────────────────────
+ 
++def _torso_channel(cfg: dict) -> int:
++    """PCA9685 port for the torso servo, or -1 when no torso is configured."""
++    try:
++        ch = int(cfg.get('channel_torso', -1))
++    except (TypeError, ValueError):
++        return -1
++    if ch < 0 or ch in (cfg.get('channel_pan'), cfg.get('channel_tilt')):
++        return -1
++    return ch
++
++
+ def _build_tracking_config(cfg: dict) -> dict:
+-    return {
++    tc = {
+         'camera':  {'index': cfg['camera_index'],
+                     'width': cfg['camera_width'],
+                     'height': cfg['camera_height'], 'fps': 30},
+@@ -392,6 +474,17 @@ def _build_tracking_config(cfg: dict) -> dict:
+             'tracking_mode':  cfg.get('tracking_mode', 'face'),
+         },
+     }
++    torso_ch = _torso_channel(cfg)
++    if torso_ch >= 0:
++        tc['hardware']['channel_assignments']['torso'] = torso_ch
++        tc['servos']['torso'] = {
++            'min_angle':    cfg.get('servo_torso_min', 0),
++            'max_angle':    cfg.get('servo_torso_max', 180),
++            'center_angle': cfg.get('servo_torso_center', 90),
++            'speed_limit':  cfg.get('servo_torso_speed', 45),
++            'invert':       bool(cfg.get('servo_torso_invert', False)),
++        }
++    return tc
+ 
+ 
+ # ── Daemon state ──────────────────────────────────────────────────────────────
+@@ -434,6 +527,8 @@ class LiveFollowDaemon:
+         self._start_components()
+         self._start_camera_thread()
+         self._apply_trigger_mode()
++        threading.Thread(target=self._torso_loop, daemon=True,
++                         name='torso-follow').start()
+ 
+     # ── Component management ─────────────────────────────────────────────────
+ 
+@@ -555,6 +650,52 @@ class LiveFollowDaemon:
+                 time.sleep(3)
+         threading.Thread(target=_loop, daemon=True, name='fpp-status-poll').start()
+ 
++    # ── Torso follow ─────────────────────────────────────────────────────────
++
++    def _overlay_channels(self) -> list:
++        chans = [self.cfg['channel_pan'], self.cfg['channel_tilt']]
++        torso_ch = _torso_channel(self.cfg)
++        if torso_ch >= 0:
++            chans.append(torso_ch)
++        return chans
++
++    def _torso_loop(self):
++        """Turn the torso toward the subject at 30 Hz, following the head pan.
++
++        Target = torso center + torso_follow x (head pan - head pan center).
++        The head does the quick tracking; the torso eases after it, limited
++        to servo_torso_speed degrees/sec.  Only runs while a subject is being
++        tracked, so the torso's overlay can be released with pan and tilt.
++        """
++        dt = 1.0 / 30
++        while True:
++            time.sleep(dt)
++            try:
++                cfg    = self.cfg
++                servos = self._servos
++                if (not self._tracking or servos is None
++                        or _torso_channel(cfg) < 0):
++                    continue
++                if (isinstance(servos._backend, FppOverlayServoBackend)
++                        and not self._overlay_active):
++                    continue
++                offset = servos.get_angle('pan') - float(cfg.get('servo_pan_center', 90))
++                if cfg.get('servo_torso_invert', False):
++                    offset = -offset
++                follow = max(0.0, min(1.0, float(cfg.get('torso_follow', 0.5))))
++                target = float(cfg.get('servo_torso_center', 90)) + follow * offset
++                target = max(float(cfg.get('servo_torso_min', 0)),
++                             min(float(cfg.get('servo_torso_max', 180)), target))
++                cur  = servos.get_angle('torso')
++                diff = target - cur
++                if abs(diff) < 1.0:        # deadband: don't buzz the servo
++                    continue
++                max_step = float(cfg.get('servo_torso_speed', 45)) * dt
++                step = max(-max_step, min(max_step, diff))
++                servos.set_servo('torso', cur + step)
++            except Exception:
++                pass
++
+     # ── Tracking control ─────────────────────────────────────────────────────
+ 
+     def start_tracking(self):
+@@ -573,11 +714,9 @@ class LiveFollowDaemon:
+                 self._mode.stop()
+                 self._tracking = False
+         self._overlay_active = False
+-        # Remove pan/tilt overlays so the sequence resumes control of those channels
++        # Remove pan/tilt/torso overlays so the sequence resumes control of those channels
+         if self._servos and isinstance(self._servos._backend, FppOverlayServoBackend):
+-            pan_ch  = self.cfg['channel_pan']
+-            tilt_ch = self.cfg['channel_tilt']
+-            self._servos._backend.delete_channels([pan_ch, tilt_ch])
++            self._servos._backend.delete_channels(self._overlay_channels())
+         print('[LiveFollow] Tracking stopped.')
+ 
+     def _handle_overlay_release(self, body_in_frame: bool):
+@@ -597,9 +736,7 @@ class LiveFollowDaemon:
+             timeout = float(self.cfg.get('follow_release_timeout', 1.5))
+             if now - self._overlay_last_seen >= timeout:
+                 self._overlay_active = False
+-                self._servos._backend.delete_channels(
+-                    [self.cfg['channel_pan'], self.cfg['channel_tilt']]
+-                )
++                self._servos._backend.delete_channels(self._overlay_channels())
+ 
+     # ── Motion sensor ────────────────────────────────────────────────────────
  
